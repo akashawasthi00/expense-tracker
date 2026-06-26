@@ -1,0 +1,24 @@
+# Requires the AWS Load Balancer Controller installed in the cluster.
+# It provisions an internet-facing ALB that routes to the Service.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: expense-tracker
+  namespace: expense-tracker
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health/live
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: expense-tracker
+                port:
+                  number: 80

@@ -1,0 +1,78 @@
+name: CI-CD to ECR + EKS
+
+# Build & test on every push/PR; deploy only on push to main.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Required for GitHub OIDC -> AWS (no long-lived access keys stored in GitHub).
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}        # e.g. ap-south-1
+  ECR_REPO:   ${{ vars.ECR_REPO }}          # e.g. expense-tracker
+  EKS_CLUSTER: ${{ vars.EKS_CLUSTER }}      # e.g. expense-eks
+  K8S_NAMESPACE: expense-tracker
+  DEPLOYMENT: expense-tracker
+  CONTAINER: api
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore ExpenseTracker.sln
+
+      - name: Build
+        run: dotnet build ExpenseTracker.sln -c Release --no-restore
+
+      - name: Test (quality gate)
+        run: dotnet test ExpenseTracker.sln -c Release --no-build --verbosity normal
+
+  deploy:
+    name: Build image, push to ECR, deploy to EKS
+    needs: build-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}   # IAM role trusting GitHub OIDC
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image (tagged with commit SHA)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$ECR_REPO:${{ github.sha }}"
+          docker build -f ExpenseTracker.Api/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Deploy to EKS (rolling update)
+        run: |
+          kubectl -n "$K8S_NAMESPACE" set image deployment/"$DEPLOYMENT" \
+            "$CONTAINER=$IMAGE" --record
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/"$DEPLOYMENT" --timeout=180s

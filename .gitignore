@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+
+# Visual Studio
+.vs/
+*.suo
+
+# Rider
+.idea/
+
+# Local secrets / env — never commit real credentials
+appsettings.Development.json
+*.env
+k8s/secret.yaml
+
+# OS
+Thumbs.db
+.DS_Store

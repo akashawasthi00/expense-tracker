@@ -1,0 +1,16 @@
+# Build output
+**/bin/
+**/obj/
+
+# IDE / VCS
+**/.vs/
+**/.git/
+**/.github/
+**/.gitignore
+
+# Local-only config and secrets (never bake into the image)
+**/appsettings.Development.json
+
+# Docs / infra not needed in the image
+**/*.md
+k8s/
