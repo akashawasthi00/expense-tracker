@@ -7,6 +7,8 @@ namespace ExpenseTracker.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+
+//Testing for Ci/Cd 
 public class CategoriesController : ControllerBase
 {
     private readonly AppDbContext _db;
