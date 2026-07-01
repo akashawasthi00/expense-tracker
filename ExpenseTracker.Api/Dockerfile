@@ -1,12 +1,20 @@
+# Build context is the repository root: docker build -f ExpenseTracker.Api/Dockerfile .
+
 # ---- Build stage ----
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy csproj and restore first (better layer caching)
+# Copy every project file first and restore, so the restore layer is cached unless a csproj changes.
+COPY ExpenseTracker.Domain/ExpenseTracker.Domain.csproj ExpenseTracker.Domain/
+COPY ExpenseTracker.Application/ExpenseTracker.Application.csproj ExpenseTracker.Application/
+COPY ExpenseTracker.Infrastructure/ExpenseTracker.Infrastructure.csproj ExpenseTracker.Infrastructure/
 COPY ExpenseTracker.Api/ExpenseTracker.Api.csproj ExpenseTracker.Api/
 RUN dotnet restore ExpenseTracker.Api/ExpenseTracker.Api.csproj
 
-# Copy the rest of the source and publish
+# Copy the source for the projects the API depends on, then publish.
+COPY ExpenseTracker.Domain/ ExpenseTracker.Domain/
+COPY ExpenseTracker.Application/ ExpenseTracker.Application/
+COPY ExpenseTracker.Infrastructure/ ExpenseTracker.Infrastructure/
 COPY ExpenseTracker.Api/ ExpenseTracker.Api/
 RUN dotnet publish ExpenseTracker.Api/ExpenseTracker.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 

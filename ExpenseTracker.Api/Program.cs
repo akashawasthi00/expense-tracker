@@ -1,45 +1,93 @@
-using ExpenseTracker.Api.Data;
+using System.Text;
+using ExpenseTracker.Api.Filters;
+using ExpenseTracker.Api.Middleware;
+using ExpenseTracker.Api.Security;
+using ExpenseTracker.Application;
+using ExpenseTracker.Application.Common.Abstractions;
+using ExpenseTracker.Infrastructure;
+using ExpenseTracker.Infrastructure.Identity;
+using ExpenseTracker.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- Services (Dependency Injection container) ---
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+// --- MVC + cross-cutting ---
+builder.Services.AddControllers(options => options.Filters.Add<ValidationFilter>());
+builder.Services.AddScoped<ValidationFilter>();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 
-// Register EF Core DbContext using the connection string from configuration.
-// Connection string can be overridden by env var (K8s Secret) in production.
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+// --- Clean Architecture layers ---
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure(builder.Configuration);
 
-// Health checks: includes a DB check so Kubernetes readiness probe reflects real state.
+// --- Authentication (JWT bearer) ---
+var jwt = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
+if (string.IsNullOrWhiteSpace(jwt.Key))
+    throw new InvalidOperationException("Jwt:Key is not configured. Set it via configuration or a secret.");
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    });
+builder.Services.AddAuthorization();
+
+// --- Swagger with a JWT "Authorize" button ---
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo { Title = "Expense Tracker API", Version = "v1" });
+
+    var scheme = new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Paste the JWT returned by /api/auth/login.",
+        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+    };
+    options.AddSecurityDefinition("Bearer", scheme);
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement { [scheme] = Array.Empty<string>() });
+});
+
+// --- Health checks (liveness = process up; readiness = DB reachable) ---
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>(name: "database");
+    .AddDbContextCheck<AppDbContext>(name: "database", tags: ["ready"]);
 
 var app = builder.Build();
 
-// --- HTTP request pipeline ---
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// Convert unhandled exceptions to ProblemDetails before anything else runs.
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// Swagger UI available in all environments for easy testing after deploy.
 app.UseSwagger();
 app.UseSwaggerUI();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 
-// Liveness: is the process up?  Readiness: are dependencies (DB) ready?
-app.MapHealthChecks("/health/live");
-app.MapHealthChecks("/health/ready");
-
-// Apply any pending EF Core migrations automatically on startup.
-// Convenient for demos/containers; for prod you may prefer a separate migration job.
+// Apply pending migrations on startup (handy for containers/demos).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -47,3 +95,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+// Exposed so integration tests can use WebApplicationFactory<Program>.
+public partial class Program;
