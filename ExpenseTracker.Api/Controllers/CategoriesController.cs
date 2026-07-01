@@ -1,44 +1,19 @@
-using ExpenseTracker.Api.Data;
-using ExpenseTracker.Api.Models;
+using ExpenseTracker.Application.Contracts.Categories;
+using ExpenseTracker.Application.Services.Abstractions;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ExpenseTracker.Api.Controllers;
 
-[ApiController]
-[Route("api/[controller]")]
-public class CategoriesController : ControllerBase
+[Route("api/categories")]
+public sealed class CategoriesController(ICategoryService categories) : ApiControllerBase
 {
-    private readonly AppDbContext _db;
-    public CategoriesController(AppDbContext db) => _db = db;
-
-    // GET api/categories
+    /// <summary>Lists all expense categories.</summary>
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Category>>> GetAll() =>
-        Ok(await _db.Categories.OrderBy(c => c.Name).ToListAsync());
+    public async Task<IActionResult> GetAll(CancellationToken ct) =>
+        HandleResult(await categories.GetAllAsync(ct));
 
-    // POST api/categories
+    /// <summary>Creates a new category.</summary>
     [HttpPost]
-    public async Task<ActionResult<Category>> Create(Category category)
-    {
-        _db.Categories.Add(category);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetAll), new { id = category.Id }, category);
-    }
-
-    // DELETE api/categories/5
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id)
-    {
-        var category = await _db.Categories.FindAsync(id);
-        if (category is null) return NotFound();
-
-        // Block delete if expenses reference it (mirrors the FK Restrict rule)
-        if (await _db.Expenses.AnyAsync(e => e.CategoryId == id))
-            return BadRequest("Cannot delete a category that has expenses.");
-
-        _db.Categories.Remove(category);
-        await _db.SaveChangesAsync();
-        return NoContent();
-    }
+    public async Task<IActionResult> Create(CreateCategoryRequest request, CancellationToken ct) =>
+        HandleResult(await categories.CreateAsync(request, ct));
 }

@@ -26,8 +26,13 @@ spec:
             - name: ConnectionStrings__DefaultConnection
               valueFrom:
                 secretKeyRef:
-                  name: db-conn
+                  name: app-secrets
                   key: ConnectionStrings__DefaultConnection
+            - name: Jwt__Key
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: Jwt__Key
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
           resources:
