@@ -4,8 +4,11 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ExpenseTracker.Api.Controllers;
 
-[Route("api/categories")]
-public sealed class CategoriesController(ICategoryService categories) : ApiControllerBase
+[ApiController]
+[Route("api/[controller]")]
+
+//Testing for Ci/Cd 
+public class CategoriesController : ControllerBase
 {
     /// <summary>Lists all expense categories.</summary>
     [HttpGet]
